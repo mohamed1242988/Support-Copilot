@@ -1,0 +1,38 @@
+Viewed requirements.txt:1-52
+Ran command: `Get-ChildItem -Recurse -Filter *.py | Select-String -Pattern "def search_local_tickets"`
+
+### 2. Deep Dive: SQLite FTS5 & FAISS Scoring Logic
+
+To give you a fully detailed understanding, here is the exact math and logic happening behind the scenes for both search engines:
+
+#### A. SQLite FTS5 (Lexical / BM25 Algorithm)
+When you call `search_local_tickets`, SQLite uses the **BM25 algorithm** (Best Matching 25) to rank keyword results.
+1. **Query Construction:** The query is split into words of 4 letters or more, joined by `OR` (e.g., `"quickbooks OR sync OR failure"`).
+2. **Scoring Factors:**
+   * **Term Frequency (TF):** The more times a search term appears in a ticket's subject or description, the higher its score.
+   * **Inverse Document Frequency (IDF):** Rare words are weighted much higher than common words. For example, if `"QuickBooks"` only appears in 10 tickets but `"issue"` appears in 500, finding `"QuickBooks"` gives a much bigger boost than finding `"issue"`.
+   * **Document Length Normalization:** A keyword match in a short text (like a Subject line) is weighted higher than a match buried in a long 2-page conversation.
+3. **Normalization:** The raw BM25 score is used to sort the tickets (lowest value = most relevant). In `retriever.py`, we translate this sorted order into a **normalized lexical score** between `1.0` (rank #1) and `0.0` (rank #50).
+
+#### B. FAISS (Semantic / Cosine Similarity)
+When we search using FAISS, we use the `BAAI/bge-base-en-v1.5` transformer model.
+1. **Concept Vector Projection:** The query and the candidate tickets are converted into dense mathematical lists of 768 numbers (vectors). These numbers represent the *concepts* of the text in a 768-dimensional semantic space.
+2. **Normalization:** By passing `normalize_embeddings=True`, we force all these vectors to have a length of exactly `1.0`.
+3. **Scoring (Inner Product):** We calculate the **dot product** (multiplying the coordinates) of the query vector and the document vector. Because the vectors are normalized, this math is exactly equal to **Cosine Similarity** (the angle between the two concepts):
+   * **$1.0$:** The vectors point in the exact same direction (perfect semantic match).
+   * **$0.0$:** The vectors are perpendicular (completely unrelated concepts).
+   * **Negative values:** Point in opposite directions (opposite concepts).
+
+---
+
+### Summary of the Entire Hybrid Scoring Formula
+When we run a search, the final score for a ticket is calculated as:
+
+$$\text{Final Score} = \left[ 30 \times \text{Lexical Score (0.0 to 1.0)} \right] + \left[ 30 \times \text{Semantic Score (0.0 to 1.0)} \right] + \text{Heuristic Bonuses}$$
+
+Where **Heuristic Bonuses** are:
+* **Phrase Match:** Up to $+20$ points (if the exact query is in the title/content).
+* **Title Keywords:** $+5$ points per matching word (capped at $5$).
+* **Content Keywords:** $+1$ point per word occurrence (capped at $5$).
+* **Query Coverage:** Up to $+25$ points (if all search terms are found).
+* **Weak Match Penalty:** $-5$ points if only a single word matches.

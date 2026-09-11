@@ -1,0 +1,16 @@
+On Your New Laptop:
+1- Install Python: Install Python (version 3.14 to match your current environment).
+
+2- Create Virtual Environment: Open your terminal in the SupportCopilot folder and run:
+     python -m venv .venv
+
+
+3- Activate & Install:
+     -- Activate the environment: .\.venv\Scripts\Activate.ps1 (in PowerShell)
+     -- Install the libraries: pip install -r requirements.txt
+
+
+4- Set Up Ollama & Qwen:
+     -- Download and install Ollama.
+     -- Open your terminal and pull your model:
+          ollama pull qwen3:4b
