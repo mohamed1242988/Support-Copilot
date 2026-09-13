@@ -209,52 +209,31 @@ def initial_sync():
 
 def incremental_sync():
     """
-    Synchronizes only Freshdesk tickets updated since the last sync.
+    Synchronizes Freshdesk tickets updated since the last sync.
     """
 
     last_sync = get_sync_state("last_sync")
 
-    last_sync_date = last_sync[:10]
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    if last_sync_date > today:
-        print("Freshdesk already synced today. Skipping sync.")
-        return
-
     if not last_sync:
-        print(
-            "No previous sync found. Run initial sync first."
-        )
+        print("No previous sync found. Run initial sync first.")
         return
 
+    print(f"Starting incremental sync from {last_sync}")
 
-    print(
-        f"Starting incremental sync from {last_sync}"
+    current_time = datetime.now(timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
     )
-
-
-    current_time = datetime.now(
-        timezone.utc
-    ).strftime("%Y-%m-%dT%H:%M:%SZ")
-
 
     latest_updated = sync_date_range_with_split(
         updated_from=last_sync,
         updated_to=current_time
     )
 
-    
     if latest_updated:
-        update_sync_state(
-        "last_sync",
-        latest_updated
-    )
+        update_sync_state("last_sync", latest_updated)
+
     print("Last Freshdesk updated =", latest_updated)
-
-    print(
-        "Incremental Freshdesk sync completed."
-    )
-
+    print("Incremental Freshdesk sync completed.")
 
 def sync_jira_projects(projects):
     """

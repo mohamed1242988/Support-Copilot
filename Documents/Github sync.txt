@@ -1,0 +1,21 @@
+1. On your laptop
+
+From: cd "C:\AI Project\SupportCopilot"
+
+Run:
+git status
+git add .
+git commit -m "Update UI and deployment"
+git push origin master
+
+
+2. On the server
+cd C:\Support-Copilot
+git pull origin master
+
+Then update dependencies if requirements.txt changed:
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+3. Restart the app
+C:\nssm\nssm.exe restart SupportCopilot
