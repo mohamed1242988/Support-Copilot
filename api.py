@@ -2,8 +2,13 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from ai_entry import run_agent
+from fastapi.responses import FileResponse
 
 app = FastAPI(title="Support Copilot API")
+
+@app.get("/")
+def home():
+    return FileResponse("static/index.html")
 
 
 class ChatRequest(BaseModel):

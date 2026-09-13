@@ -50,3 +50,4 @@ typing_extensions==4.16.0
 xlsxwriter==3.2.9
 fastapi
 uvicorn
+boto3
