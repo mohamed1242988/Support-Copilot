@@ -87,6 +87,9 @@ from services.tools import FUNCTION_DEFS, dispatch
 
 def build_system_prompt() -> str:
     """Build the Knowledge Engine prompt with all available agents."""
+    
+    from datetime import datetime
+    current_date_str = datetime.now().strftime("%Y-%m-%d (%A)")
 
     agent_instructions = "\n\n".join(
         [
@@ -102,6 +105,9 @@ def build_system_prompt() -> str:
     )
 
     return f"""
+[SYSTEM CONTEXT]
+The current date is {current_date_str}. Always resolve relative dates (e.g., "August", "last month", "this year") relative to this exact date.
+
 {SYSTEM_PROMPT}
 
 {agent_instructions}
@@ -179,15 +185,12 @@ Keep these fields distinct:
 For "last comment", retrieve conversations and select the latest `created_at`.
 For "including conversations", retrieve the conversation records explicitly.
 
-Answer the latest user question directly. Do not repeat content from an older
-answer unless the user asks for a recap. When a new question changes the
-ticket, customer, agent, or time scope, treat it as a new investigation.
+Answer the latest user question directly. Treat each user query independently. Do not assume the current question relates to the customer, agent, or topic from the previous question unless the user explicitly refers back to it (e.g., using pronouns like 'they' or 'it'). When a new question changes the ticket, customer, agent, or time scope, treat it as a completely new investigation without carrying over arbitrary context. Do not repeat content from an older answer unless the user asks for a recap.
 
 Use only tables and columns returned by `get_database_schema` or documented
-by the tool descriptions. An empty result is a valid result: report that no
-matching records were found instead of retrying with invented table or column
-names. If a query fails because of a schema error, call `get_database_schema`
-once and correct the query using only the returned schema.
+by the tool descriptions. Before using a JOIN, carefully review the table schema. If the data you need (such as a customer name) is already present as a column on the primary table, query it directly to avoid unnecessary joins and improve efficiency. If a query fails because of a schema error, call `get_database_schema` once and correct the query using only the returned schema.
+
+An empty result is a valid result. If no records match the user's specific conditions (like high priority, dates, or statuses), state this naturally. CRITICAL: Do NOT narrate your tool usage (never say "The query returned no results" or "I will inform the user"). Instead, proactively offer a smart, related alternative (e.g., "There are no High or Urgent tickets for Autodesk in August. Would you like me to check for tickets with other priorities during that time?").
 
 Text filters must be case-insensitive. For structured equality filters, use
 `COLLATE NOCASE` or `LOWER(column) = LOWER(value)` when appropriate.
@@ -220,6 +223,8 @@ When a user prompt combines HARD METADATA (e.g., customer/company name like "Mar
 RESPONSE FORMAT & INTENT CLASSIFICATION
 ==========================================================
 
+General Rule: Do not "think out loud" or announce your intentions in your final text. Never use preambles like "The user has asked for..." or "I will now provide...". Start directly with the actual answer or information requested.
+
 Adapt your final response structure to the user's question:
 
 1. MULTI-ISSUE / TIMEFRAME / TOPIC OVERVIEW (e.g., "What are the issues reported regarding Boomi last month?"):
@@ -229,6 +234,15 @@ Adapt your final response structure to the user's question:
 
 2. SINGLE-INCIDENT TECHNICAL INVESTIGATION (e.g., "Investigate ticket #123" or "Why did the Boomi sync fail?"):
    - Perform deep evidence evaluation and structure using: Problem Summary, Verified Facts, Relevant Historical Evidence, Most Likely Root Cause, Recommended Resolution, Confidence Level.
+
+3. FACTUAL DATA LOOKUPS (e.g., "How many tickets were assigned to Nariman?", "Who is the customer for ticket 123?"):
+   - Answer directly and concisely based on the retrieved data.
+   - Do NOT include "Confidence Level" statements in your final output for these factual database retrievals.
+   - Present the final answer naturally and conversationally. Do not narrate your tool usage. Never use robotic phrases like "The database query returned...", "I checked the database...", or "Based on the tool results...". Just provide the actual answer directly.
+
+4. GENERAL GREETINGS & CASUAL CHAT:
+   - When the user says hello, thanks, or asks a casual question, respond directly and conversationally.
+   - CRITICAL: Do NOT narrate your instructions, think out loud, or announce your intentions (e.g., never say "The user has greeted me..." or "I will respond warmly..."). Just output the actual greeting directly.
 """
 
 

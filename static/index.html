@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -90,6 +91,82 @@
             background: #2d3b49;
         }
 
+        /* Chat history */
+        .history-section {
+            margin-top: 22px;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .history-list {
+            overflow-y: auto;
+            padding-right: 3px;
+        }
+
+        .history-list::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .history-list::-webkit-scrollbar-thumb {
+            background: #394654;
+            border-radius: 4px;
+        }
+
+        .history-item {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 8px 8px;
+            margin-bottom: 3px;
+            border-radius: 7px;
+            cursor: pointer;
+            color: #cbd5df;
+            font-size: 12px;
+            transition: 0.15s;
+        }
+
+        .history-item:hover {
+            background: #222e3a;
+        }
+
+        .history-item.active {
+            background: #2d3b49;
+            color: white;
+        }
+
+        .history-title {
+            flex: 1;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        .delete-chat {
+            border: none;
+            background: transparent;
+            color: #7f8b98;
+            cursor: pointer;
+            font-size: 13px;
+            padding: 2px 4px;
+            opacity: 0;
+        }
+
+        .history-item:hover .delete-chat {
+            opacity: 1;
+        }
+
+        .delete-chat:hover {
+            color: #ef4444;
+        }
+
+        .empty-history {
+            padding: 4px 8px;
+            color: #687584;
+            font-size: 11px;
+        }
+
         /* Data */
         .section-title {
             margin: 28px 8px 12px;
@@ -97,6 +174,14 @@
             font-size: 11px;
             font-weight: 600;
             letter-spacing: 0.08em;
+        }
+
+        .history-section .section-title {
+            margin-top: 0;
+        }
+
+        .data-section {
+            flex-shrink: 0;
         }
 
         .data-item {
@@ -148,7 +233,6 @@
         }
 
         .sidebar-bottom {
-            margin-top: auto;
             padding: 10px 8px;
             font-size: 12px;
             color: #9ca8b5;
@@ -425,6 +509,22 @@
             ＋ New conversation
         </button>
 
+
+        <!-- Chat History -->
+
+        <div class="history-section">
+
+            <div class="section-title">CONVERSATIONS</div>
+
+            <div class="history-list" id="history-list">
+                <div class="empty-history">
+                    No previous conversations
+                </div>
+            </div>
+
+        </div>
+
+
         <div class="data-section">
 
             <div class="section-title">DATA</div>
@@ -458,6 +558,7 @@
 
         </div>
 
+
         <div class="sidebar-bottom">
             <div class="status">
                 <span class="status-dot"></span>
@@ -475,10 +576,9 @@
             <div class="messages" id="messages">
 
                 <div class="welcome" id="welcome">
-                    <h1>Your support knowledge.<br>One intelligent place.</h1>
+                    <h1>The intelligence layer your business data needs</h1>
                     <p>
-                        Investigate tickets, understand customers, and uncover
-                        answers across your support data — powered by PSA AI.
+                        Ask questions, investigate problems, and uncover insights across your organization with PSA AI.
                     </p>
                 </div>
 
@@ -516,40 +616,462 @@
 
 <script>
 
+    /*
+     * ============================================================
+     * CHAT HISTORY
+     * ============================================================
+     *
+     * Conversations are stored locally in the user's browser.
+     *
+     * Nothing is sent to the server specifically for history.
+     * The existing /chat endpoint still receives the selected
+     * conversation's history exactly as before.
+     */
+
+    const STORAGE_KEY = "psa_ai_chat_sessions";
+    const MAX_SESSIONS = 30;
+
+    let sessions = [];
+    let currentSessionId = null;
     let history = [];
+
 
     const messageInput = document.getElementById("message");
     const sendButton = document.getElementById("send");
     const messages = document.getElementById("messages");
-    const welcome = document.getElementById("welcome");
+    const historyList = document.getElementById("history-list");
 
 
-    function addMessage(role, text) {
+    /*
+     * Load saved conversations from localStorage.
+     */
+
+    function loadChatSessions() {
+
+        try {
+
+            const saved = localStorage.getItem(STORAGE_KEY);
+
+            if (saved) {
+                sessions = JSON.parse(saved);
+            }
+
+        } catch (error) {
+
+            console.error("Failed to load chat history:", error);
+            sessions = [];
+        }
+
+        renderHistory();
+
+        /*
+         * Start with a fresh conversation when the page opens.
+         * Existing conversations remain available in the sidebar.
+         */
+
+        createNewSession();
+    }
+
+
+    /*
+     * Save conversations to localStorage.
+     */
+
+    function saveChatSessions() {
+
+        try {
+
+            localStorage.setItem(
+                STORAGE_KEY,
+                JSON.stringify(sessions)
+            );
+
+        } catch (error) {
+
+            console.error("Failed to save chat history:", error);
+        }
+    }
+
+
+    /*
+     * Create a new conversation.
+     */
+
+    function createNewSession() {
+
+        const session = {
+            id: Date.now().toString(),
+            title: "New conversation",
+            history: [],
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+        };
+
+        sessions.unshift(session);
+
+        /*
+         * Keep browser storage under control.
+         */
+
+        if (sessions.length > MAX_SESSIONS) {
+            sessions = sessions.slice(0, MAX_SESSIONS);
+        }
+
+        currentSessionId = session.id;
+        history = [];
+
+        saveChatSessions();
+        renderHistory();
+        showWelcome();
+    }
+
+
+    /*
+     * New conversation button.
+     */
+
+    function newChat() {
+
+        /*
+         * Don't create another empty conversation if the
+         * current conversation is already empty.
+         */
+
+        const current = getCurrentSession();
+
+        if (current && current.history.length === 0) {
+
+            currentSessionId = current.id;
+            history = [];
+
+            showWelcome();
+            messageInput.value = "";
+            messageInput.focus();
+
+            return;
+        }
+
+        createNewSession();
+
+        messageInput.value = "";
+        messageInput.style.height = "48px";
+        messageInput.focus();
+    }
+
+
+    /*
+     * Get currently selected session.
+     */
+
+    function getCurrentSession() {
+
+        return sessions.find(
+            session => session.id === currentSessionId
+        );
+    }
+
+
+    /*
+     * Generate a short conversation title from
+     * the user's first question.
+     */
+
+    function generateTitle(text) {
+
+        let title = text
+            .replace(/\s+/g, " ")
+            .trim();
+
+        if (title.length > 45) {
+            title = title.substring(0, 45).trim() + "...";
+        }
+
+        return title || "New conversation";
+    }
+
+
+    /*
+     * Save current conversation.
+     */
+
+    function saveCurrentSession() {
+
+        const session = getCurrentSession();
+
+        if (!session) {
+            return;
+        }
+
+        session.history = history;
+        session.updatedAt = Date.now();
+
+        saveChatSessions();
+        renderHistory();
+    }
+
+
+    /*
+     * Render conversation list in sidebar.
+     */
+
+    function renderHistory() {
+
+        historyList.innerHTML = "";
+
+        if (sessions.length === 0) {
+
+            historyList.innerHTML = `
+                <div class="empty-history">
+                    No previous conversations
+                </div>
+            `;
+
+            return;
+        }
+
+
+        /*
+         * Most recently updated conversations first.
+         */
+
+        const sortedSessions = [...sessions].sort(
+            (a, b) => b.updatedAt - a.updatedAt
+        );
+
+
+        sortedSessions.forEach(session => {
+
+            const item = document.createElement("div");
+
+            item.className = "history-item";
+
+            if (session.id === currentSessionId) {
+                item.classList.add("active");
+            }
+
+
+            const title = document.createElement("div");
+
+            title.className = "history-title";
+            title.textContent = session.title;
+
+
+            const deleteButton = document.createElement("button");
+
+            deleteButton.className = "delete-chat";
+            deleteButton.textContent = "×";
+            deleteButton.title = "Delete conversation";
+
+
+            deleteButton.onclick = function(event) {
+
+                event.stopPropagation();
+
+                deleteSession(session.id);
+            };
+
+
+            item.appendChild(title);
+            item.appendChild(deleteButton);
+
+
+            item.onclick = function() {
+
+                loadSession(session.id);
+            };
+
+
+            historyList.appendChild(item);
+
+        });
+    }
+
+
+    /*
+     * Load an existing conversation.
+     */
+
+    function loadSession(sessionId) {
+
+        const session = sessions.find(
+            session => session.id === sessionId
+        );
+
+        if (!session) {
+            return;
+        }
+
+        currentSessionId = session.id;
+        history = session.history || [];
+
+        renderConversation();
+        renderHistory();
+
+        messageInput.value = "";
+        messageInput.style.height = "48px";
+        messageInput.focus();
+    }
+
+
+    /*
+     * Delete one conversation.
+     */
+
+    function deleteSession(sessionId) {
+
+        sessions = sessions.filter(
+            session => session.id !== sessionId
+        );
+
+        saveChatSessions();
+
+
+        if (currentSessionId === sessionId) {
+
+            if (sessions.length > 0) {
+
+                const latest = [...sessions].sort(
+                    (a, b) => b.updatedAt - a.updatedAt
+                )[0];
+
+                loadSession(latest.id);
+
+            } else {
+
+                createNewSession();
+            }
+
+        } else {
+
+            renderHistory();
+        }
+    }
+
+
+    /*
+     * Display the current conversation.
+     */
+
+    function renderConversation() {
+
+        messages.innerHTML = "";
+
+
+        if (!history || history.length === 0) {
+
+            messages.innerHTML = `
+                <div class="welcome" id="welcome">
+                    <h1>The intelligence layer your business data needs</h1>
+                    <p>
+                        Ask questions, investigate problems, and uncover
+                        insights across your organization with PSA AI.
+                    </p>
+                </div>
+            `;
+
+            return;
+        }
+
+
+        history.forEach(message => {
+
+            /*
+             * Your existing history format is expected to contain
+             * role + content.
+             */
+
+            if (message.role === "user") {
+
+                addMessage("user", message.content, false);
+
+            } else if (message.role === "assistant") {
+
+                addMessage("assistant", message.content, false);
+            }
+
+        });
+
+
+        scrollToBottom();
+    }
+
+
+    /*
+     * Display welcome screen.
+     */
+
+    function showWelcome() {
+
+        messages.innerHTML = `
+            <div class="welcome" id="welcome">
+                <h1>The intelligence layer your business data needs</h1>
+                <p>
+                    Ask questions, investigate problems, and uncover
+                    insights across your organization with PSA AI.
+                </p>
+            </div>
+        `;
+    }
+
+
+    /*
+     * Add message to the UI.
+     *
+     * saveToHistory=false is used when restoring an existing
+     * conversation from localStorage.
+     */
+
+    function addMessage(role, text, saveToHistory = false) {
+
+        const welcome = document.getElementById("welcome");
 
         if (welcome) {
             welcome.style.display = "none";
         }
 
+
         const message = document.createElement("div");
+
         message.className = `message ${role}`;
 
+
         const avatar = document.createElement("div");
+
         avatar.className = "avatar";
         avatar.textContent = role === "user" ? "You" : "AI";
 
+
         const bubble = document.createElement("div");
+
         bubble.className = "bubble";
 
+
         if (role === "assistant") {
+
             bubble.innerHTML = marked.parse(text);
+
         } else {
+
             bubble.textContent = text;
         }
+
 
         message.appendChild(avatar);
         message.appendChild(bubble);
 
         messages.appendChild(message);
+
+
+        if (saveToHistory) {
+
+            history.push({
+                role: role,
+                content: text
+            });
+
+            saveCurrentSession();
+        }
+
 
         scrollToBottom();
     }
@@ -558,16 +1080,22 @@
     function addThinking() {
 
         const message = document.createElement("div");
+
         message.className = "message assistant";
         message.id = "thinking";
 
+
         const avatar = document.createElement("div");
+
         avatar.className = "avatar";
         avatar.textContent = "AI";
 
+
         const bubble = document.createElement("div");
+
         bubble.className = "bubble thinking";
         bubble.textContent = "Thinking...";
+
 
         message.appendChild(avatar);
         message.appendChild(bubble);
@@ -600,11 +1128,14 @@
 
             const data = await response.json();
 
+
             document.getElementById("ticket-count").textContent =
                 data.tickets.toLocaleString();
 
+
             document.getElementById("customer-count").textContent =
                 data.customers.toLocaleString();
+
 
             if (data.last_sync) {
 
@@ -625,7 +1156,9 @@
         } catch (error) {
 
             console.error("Failed to load stats:", error);
-            document.getElementById("last-sync").textContent = "Unavailable";
+
+            document.getElementById("last-sync").textContent =
+                "Unavailable";
         }
     }
 
@@ -634,8 +1167,10 @@
 
         const button = document.getElementById("sync-button");
 
+
         button.disabled = true;
         button.textContent = "↻ Syncing...";
+
 
         try {
 
@@ -643,13 +1178,16 @@
                 method: "POST"
             });
 
+
             if (!response.ok) {
                 throw new Error("Sync failed");
             }
 
+
             await loadStats();
 
             button.textContent = "✓ Sync completed";
+
 
         } catch (error) {
 
@@ -657,11 +1195,14 @@
 
             button.textContent = "⚠ Sync failed";
 
+
         } finally {
 
             setTimeout(() => {
+
                 button.textContent = "↻ Sync Data";
                 button.disabled = false;
+
             }, 2000);
         }
     }
@@ -671,55 +1212,122 @@
 
         const message = messageInput.value.trim();
 
+
         if (!message || sendButton.disabled) {
             return;
         }
 
-        addMessage("user", message);
+
+        /*
+         * If somehow there is no current session, create one.
+         */
+
+        if (!getCurrentSession()) {
+            createNewSession();
+        }
+
+
+        /*
+         * Give the conversation its title using the
+         * first user question.
+         */
+
+        const current = getCurrentSession();
+
+        if (current && current.history.length === 0) {
+
+            current.title = generateTitle(message);
+            current.updatedAt = Date.now();
+
+            saveChatSessions();
+            renderHistory();
+        }
+
+
+        /*
+         * Display user message.
+         */
+
+        addMessage("user", message, true);
+
 
         messageInput.value = "";
         messageInput.style.height = "48px";
 
+
         sendButton.disabled = true;
         sendButton.textContent = "Sending...";
 
+
         addThinking();
+
 
         try {
 
             const response = await fetch("/chat", {
+
                 method: "POST",
+
                 headers: {
                     "Content-Type": "application/json"
                 },
+
                 body: JSON.stringify({
                     message: message,
                     history: history
                 })
+
             });
+
 
             if (!response.ok) {
                 throw new Error("Server returned an error");
             }
 
+
             const data = await response.json();
+
 
             removeThinking();
 
-            addMessage("assistant", data.answer);
+
+            /*
+             * Use the history returned by the backend.
+             * This preserves your existing API behavior.
+             */
 
             history = data.history;
+
+
+            /*
+             * Display the assistant response without
+             * adding it a second time to history.
+             */
+
+            addMessage("assistant", data.answer, false);
+
+
+            /*
+             * Save the complete updated conversation.
+             */
+
+            saveCurrentSession();
+
 
         } catch (error) {
 
             removeThinking();
 
+
             addMessage(
                 "assistant",
-                "⚠️ Sorry, something went wrong while processing your request."
+                "⚠️ Sorry, something went wrong while processing your request.",
+                false
             );
 
+
             console.error(error);
+
 
         } finally {
 
@@ -731,59 +1339,60 @@
     }
 
 
-    function newChat() {
-
-        history = [];
-
-        messages.innerHTML = `
-            <div class="welcome" id="welcome">
-                <h1>Your support knowledge.<br>One intelligent place.</h1>
-                <p>
-                    Investigate tickets, understand customers, and uncover
-                    answers across your support data — powered by PSA AI.
-                </p>
-            </div>
-        `;
-
-        messageInput.value = "";
-        messageInput.focus();
-    }
-
-
     function scrollToBottom() {
 
         const chat = document.getElementById("chat");
 
+
         setTimeout(() => {
+
             chat.scrollTop = chat.scrollHeight;
+
         }, 50);
     }
 
 
-    // Load database statistics when the page opens
+    /*
+     * ============================================================
+     * INITIALIZATION
+     * ============================================================
+     */
+
+    loadChatSessions();
+
     loadStats();
 
 
-    // Enter = send
-    // Shift + Enter = new line
+    /*
+     * Enter = send
+     * Shift + Enter = new line
+     */
+
     messageInput.addEventListener("keydown", function(event) {
 
         if (event.key === "Enter" && !event.shiftKey) {
 
             event.preventDefault();
+
             sendMessage();
         }
     });
 
 
-    // Automatically grow textarea
+    /*
+     * Automatically grow textarea.
+     */
+
     messageInput.addEventListener("input", function() {
 
         this.style.height = "auto";
-        this.style.height = Math.min(this.scrollHeight, 150) + "px";
+
+        this.style.height =
+            Math.min(this.scrollHeight, 150) + "px";
     });
 
 </script>
 
 </body>
 </html>
+```

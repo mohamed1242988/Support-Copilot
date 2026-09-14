@@ -22,6 +22,10 @@ _SCHEMA_CACHE = None  # Global cache for schema
 
 
 _COLUMN_MEANINGS = {
+    ("freshdesk_tickets", "relates_to"): {
+        "description": "The PSA module or product category this issue relates to, as set by support team members. Consider this as a strong signal for the ticket's category, but combine it with your own reasoning of the subject/description when categorizing issues.",
+        "semantic_type": "category",
+    },
     ("freshdesk_tickets", "followup_by"): {
         "description": "Date by which the assigned agent promised a follow-up.",
         "semantic_type": "follow_up_deadline",
