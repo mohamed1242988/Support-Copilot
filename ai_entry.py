@@ -944,8 +944,13 @@ def extract_text(response):
                     texts.append(
                         block["text"]
                     )
-
-            return "\n".join(texts)
+            import re
+            return re.sub(
+            r"<thinking>.*?</thinking>",
+            "",
+            "\n".join(texts),
+            flags=re.DOTALL,
+            ).strip()
 
         except Exception:
             return str(response)
@@ -1043,7 +1048,19 @@ def run_agent(user_question: str, history: List[Dict] | None = None) -> Tuple[st
                         answer = "\n".join(lines)
             except Exception:
                 pass
-            return answer, messages
+            clean_history = history.copy() if history else []
+
+            clean_history.append({
+                "role": "user",
+                "content": user_question
+                })
+
+            clean_history.append({
+                "role": "assistant",
+                "content": answer
+                })
+
+            return answer, clean_history
 
         # Detect duplicate calls (same name + arguments).
         duplicate = False
@@ -1068,6 +1085,10 @@ def run_agent(user_question: str, history: List[Dict] | None = None) -> Tuple[st
             _safe_print(f"\n[TOOL CALL] {call['name']}")
             _safe_print(f"[ARGUMENTS] {call['arguments']}")
             try:
+                print("\n===== TOOL CALL =====")
+                print("Tool:", call.get("name"))
+                print("Arguments:", call.get("arguments"))
+                print("=====================\n")
                 result = dispatch({"name": call["name"], "arguments": call["arguments"]})
                 res_str = str(result)
                 if len(res_str) > 600:

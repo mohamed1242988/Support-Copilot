@@ -78,4 +78,4 @@ for row in tickets:
         print("  ✅ Private note added")
     else:
         print(f"  ❌ Note failed: {note_response.status_code}")
-    
+
