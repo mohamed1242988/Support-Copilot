@@ -14,12 +14,12 @@ FUNCTION_DEFS: List[Dict] = [
             "database. Use this for structured questions requiring filtering, "
             "timeframes/dates (e.g. created_at >= date('now', '-1 month')), customer_name, "
             "joins, aggregations, or direct access to fields. "
-            "For database questions, call get_database_schema first and use only "
-            "the table and column names it returns. "
+            "Use only table and column names from the schema in the conversation. "
             "The agent column is assigned_agent, not assigned_agent_name. "
             "For a partial agent name such as 'Hager', use assigned_agent LIKE '%Hager%'. "
             "This field represents the current assigned agent; it does not prove assignment history. "
             "Only SELECT/WITH queries are allowed. "
+            "If the result has truncated: true, row_count is not a total; aggregate or narrow the query. "
             "IMPORTANT: for customer or company names, prefer partial matching "
             "with LIKE '%value%'. Example: WHERE Customer_Name LIKE '%Mary Kay%'. "
             "Text comparisons are case-insensitive, including values such as "
@@ -147,9 +147,7 @@ def dispatch(call: Dict) -> Dict:
     )
 
     if name == "query_database":
-        return {
-            "results": query_database(args["sql"])
-        }
+        return query_database(args["sql"])
 
     if name == "get_database_schema":
         return {

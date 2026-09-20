@@ -103,8 +103,7 @@ Focus on:
 
 Use query_database for these tasks.
 
-Use get_database_schema when you need to understand available tables,
-columns, or relationships.
+The database schema is already provided in the conversation.
 
 Return accurate results based on the database and explain the result
 clearly when useful.

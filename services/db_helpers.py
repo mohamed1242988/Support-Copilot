@@ -1,12 +1,12 @@
 from typing import List, Dict, Any
 import sqlite3
 import re
-
+import json
 # ----------------------------------------------------------------------
 # Configuration
 # ----------------------------------------------------------------------
-_DB_PATH = "c:/AI Project/SupportCopilot/storage/support_copilot.db"
-
+from pathlib import Path
+_DB_PATH = str(Path(__file__).resolve().parent.parent / "storage" / "support_copilot.db")
 
 def _conn() -> sqlite3.Connection:
     """Create a new SQLite connection with Row factory."""
@@ -18,6 +18,21 @@ def _conn() -> sqlite3.Connection:
 # ----------------------------------------------------------------------
 # Generic database access
 # ----------------------------------------------------------------------
+def _shrink_rows(rows, max_field=400, max_chars=30000):
+    """Cut long text fields and cap total size. Returns (rows, truncated)."""
+    out, total, truncated = [], 0, False
+    for row in rows:
+        row = {
+            k: (v[:max_field] + "…[cut]" if isinstance(v, str) and len(v) > max_field else v)
+            for k, v in row.items()
+        }
+        size = len(json.dumps(row, ensure_ascii=False, default=str))
+        if total + size > max_chars:
+            truncated = True
+            break
+        out.append(row)
+        total += size
+    return out, truncated
 _SCHEMA_CACHE = None  # Global cache for schema
 
 
@@ -25,6 +40,10 @@ _COLUMN_MEANINGS = {
     ("freshdesk_tickets", "relates_to"): {
         "description": "The PSA module or product category this issue relates to, as set by support team members. Consider this as a strong signal for the ticket's category, but combine it with your own reasoning of the subject/description when categorizing issues.",
         "semantic_type": "category",
+    },
+    ("freshdesk_tickets", "internal_status"): {
+        "description": "Internal escalation/workflow state. Separate from `status`; never put internal_status values in a status filter.",
+        "semantic_type": "workflow_state",
     },
     ("freshdesk_tickets", "followup_by"): {
         "description": "Date by which the assigned agent promised a follow-up.",
@@ -53,7 +72,7 @@ _COLUMN_MEANINGS = {
 }
 
 
-def query_database(sql: str) -> List[Dict[str, Any]]:
+def query_database(sql: str) -> Dict[str, Any]:
     """
     Execute a READ‑ONLY SQL query with schema validation.
 
@@ -66,23 +85,6 @@ def query_database(sql: str) -> List[Dict[str, Any]]:
     sql_clean = sql.strip().lower()
     if not (sql_clean.startswith("select") or sql_clean.startswith("with")):
         raise ValueError("Only SELECT or WITH queries are allowed.")
-
-    # Disallow forbidden keywords
-    forbidden = [
-        "insert ",
-        "update ",
-        "delete ",
-        "drop ",
-        "alter ",
-        "create ",
-        "replace ",
-        "attach ",
-        "detach ",
-    ]
-    for keyword in forbidden:
-        keyword_name = keyword.strip()
-        if re.search(rf"(?<![\w.]){re.escape(keyword_name)}\b", sql_clean):
-            raise ValueError(f"Forbidden SQL operation: {keyword_name}")
 
     # ------------------------------------------------------------------
     # Auto‑rewrite exact equality on name columns to a LIKE pattern.
@@ -109,61 +111,12 @@ def query_database(sql: str) -> List[Dict[str, Any]]:
         sql,
     )
 
-    # Load (and cache) schema for validation
-    schema_obj = get_database_schema()
-    tables_schema = schema_obj["tables"]
-
-    # ------------------------------------------------------------------
-    # Validate referenced tables
-    # ------------------------------------------------------------------
-    table_names = re.findall(r"(?:from|join)\s+([`\"']?\w+[`\"']?)", sql, flags=re.IGNORECASE)
-    for tbl in table_names:
-        tbl_clean = tbl.strip('`"\'')
-        if tbl_clean.lower() not in {name.lower() for name in tables_schema}:
-            raise ValueError(
-                f"Referenced table '{tbl_clean}' does not exist in the database schema."
-            )
-
-    # ------------------------------------------------------------------
-    # Validate referenced columns (lightweight + wildcard support)
-    # ------------------------------------------------------------------
-    select_match = re.search(
-        r"select\s+(.*?)\s+from",
-        sql,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    if select_match:
-        cols_section = select_match.group(1).strip()
-        # If the user asked for the wildcard, skip column validation entirely.
-        if cols_section == "*":
-            pass  # ok – everything is selected
-        else:
-            cols = [c.strip() for c in cols_section.split(",")]
-            for col in cols:
-                # Allow qualified wildcards like ``t.*`` – treat them as ok.
-                if col.endswith(".*"):
-                    continue
-                # Skip function calls (e.g. COUNT(*))
-                if "(" in col:
-                    continue
-                col_name = col.split(".")[-1]
-                # Case‑insensitive check against schema column names
-                col_name_lower = col_name.lower()
-                if not any(
-                    col_name_lower == c["name"].lower()
-                    for cols_list in tables_schema.values()
-                    for c in cols_list
-                ):
-                    raise ValueError(f"Column '{col_name}' not found in any known table.")
-
-    # Ensure a sensible row limit (default 100) if not explicitly set
-    if "limit" not in sql_clean:
-        sql = f"{sql.rstrip(';')} LIMIT 100;"
 
     # ------------------------------------------------------------------
     # Execute the query
     # ------------------------------------------------------------------
     with _conn() as conn:
+        conn.execute("PRAGMA query_only = ON")
         # Let SQLite validate every referenced column, including columns used
         # in WHERE, JOIN, GROUP BY, ORDER BY, and HAVING clauses.
         try:
@@ -172,12 +125,21 @@ def query_database(sql: str) -> List[Dict[str, Any]]:
         except sqlite3.OperationalError as exc:
             if "no such column" in str(exc).lower():
                 raise ValueError(
-                    f"{exc}. Use get_database_schema and retry with an exact column name; "
+                    f"{exc}. Retry with an exact column name from the schema; "
                     "do not substitute a guessed field."
                 ) from exc
             raise
-        rows = cursor.fetchmany(100)  # enforce max rows
-        return [dict(row) for row in rows]
+        rows = [dict(r) for r in cursor.fetchmany(101)]
+        row_capped = len(rows) > 100
+        rows, size_capped = _shrink_rows(rows[:100])
+        result = {"results": rows, "row_count": len(rows)}
+        if row_capped or size_capped:
+            result["truncated"] = True
+            result["note"] = (
+                "Result was cut; row_count is NOT a total. Use COUNT(*)/GROUP BY, "
+                "add filters, or select fewer columns."
+            )
+        return result
 
 
 # ----------------------------------------------------------------------
@@ -232,7 +194,17 @@ def get_database_schema() -> Dict[str, Any]:
                 }
                 for column in columns
             ]
-
+        for col in schema.get("freshdesk_tickets", []):
+            if col["type"].upper() != "TEXT" or col["name"].lower() in {"subject", "description_text"}:
+                continue
+            vals = [
+                r[0] for r in conn.execute(
+                    f'SELECT DISTINCT "{col["name"]}" FROM freshdesk_tickets '
+                    f'WHERE "{col["name"]}" IS NOT NULL LIMIT 31'
+                ).fetchall()
+            ]
+            if len(vals) <= 30:
+                col["valid_values"] = vals
         # Define explicit relationships that the model can rely on.
         relationships = [
             {
@@ -252,29 +224,37 @@ def get_database_schema() -> Dict[str, Any]:
         ]
 
         business_rules = [
+            {"name": "public_agent_reply", "meaning": "freshdesk_conversations.incoming = 0 AND private = 0"},
+            {"name": "public_customer_comment", "meaning": "freshdesk_conversations.incoming = 1 AND private = 0"},
+            {"name": "private_note", "meaning": "freshdesk_conversations.private = 1 (any incoming value)"},
             {
-                "name": "agent_conversation",
-                "meaning": "freshdesk_conversations.incoming = 0",
+                "name": "no_comment_author",
+                "meaning": "Conversations have no author column. Never name who wrote a comment; say 'an agent reply' unless the body is signed.",
             },
             {
-                "name": "customer_conversation",
-                "meaning": "freshdesk_conversations.incoming = 1",
+                "name": "last_comment",
+                "meaning": "Default = any comment (public or private, agent or customer). Compute in SQL, never by reading all conversations: "
+                           "FROM freshdesk_tickets t LEFT JOIN freshdesk_conversations c ON c.ticket_id = t.id "
+                           "AND c.created_at = (SELECT MAX(created_at) FROM freshdesk_conversations WHERE ticket_id = t.id)",
             },
             {
-                "name": "public_agent_reply",
-                "meaning": "freshdesk_conversations.incoming = 0 AND freshdesk_conversations.private = 0",
+                "name": "last_public_comment",
+                "meaning": "Only when the user says 'public'. Same pattern as last_comment, adding 'AND c.private = 0' to the JOIN and 'AND private = 0' inside the subquery.",
             },
             {
-                "name": "internal_agent_note",
-                "meaning": "freshdesk_conversations.incoming = 0 AND freshdesk_conversations.private = 1",
+                "name": "last_customer_comment",
+                "meaning": "Only when the user says 'by the client/customer'. Same pattern, adding 'AND c.incoming = 1 AND c.private = 0' to the JOIN and 'AND incoming = 1 AND private = 0' inside the subquery.",
             },
             {
                 "name": "missed_follow_up",
                 "meaning": "followup_by is in the past and no qualifying agent conversation exists after that date",
             },
+            {"name": "active_ticket", "meaning": "status NOT IN ('Resolved', 'Closed')"},
             {
-                "name": "active_ticket",
-                "meaning": "status is not Resolved or Closed",
+                "name": "escalated_to_rd",
+                "meaning": "Currently escalated to R&D: status NOT IN ('Resolved','Closed') AND (status = 'On-Hold (Escalated)' "
+                           "OR internal_status IN ('Escalated -> Development In Progress','Escalation Complete','Escalated -> Development Deferred')). "
+                           "Use exact internal_status values; never put them in the status filter.",
             },
         ]
 
@@ -324,6 +304,8 @@ def get_ticket_by_id(ticket_id: int) -> Dict[str, Any]:
             return {"error": f"Ticket {ticket_id} not found"}
         
         ticket_data = dict(row)
+        if isinstance(ticket_data.get("description_text"), str):
+            ticket_data["description_text"] = ticket_data["description_text"][:1500]
         ticket_data["conversations"] = get_conversations_for_ticket(ticket_id)
         return ticket_data
 
@@ -361,7 +343,8 @@ def search_tickets(query: str) -> List[Dict[str, Any]]:
             """,
             (match_expr,),
         )
-        return [dict(row) for row in cursor.fetchall()]
+        rows, _ = _shrink_rows([dict(row) for row in cursor.fetchall()], max_field=300)
+        return rows
 
 
 
@@ -369,15 +352,26 @@ def search_tickets(query: str) -> List[Dict[str, Any]]:
 # Retrieve all conversations belonging to a ticket
 # ----------------------------------------------------------------------
 def get_conversations_for_ticket(ticket_id: int) -> List[Dict[str, Any]]:
-    """Return the list of `Freshdesk_conversations` for the given ticket."""
+    """Return conversations for a ticket, oldest first. Newest are kept if size-capped."""
     with _conn() as conn:
         cursor = conn.execute(
             """
             SELECT *
             FROM Freshdesk_conversations
             WHERE ticket_id = ?
-            ORDER BY created_at ASC
+            ORDER BY created_at DESC
             """,
             (ticket_id,),
         )
-        return [dict(row) for row in cursor.fetchall()]
+        rows = [dict(row) for row in cursor.fetchall()]
+    rows, truncated = _shrink_rows(rows, max_field=1500, max_chars=60000)
+    rows.reverse()
+    if truncated:
+        rows.insert(0, {"note": "Older conversations omitted for size; only the newest are shown."})
+    return rows
+
+
+def invalidate_schema_cache() -> None:
+    """Call after a sync so valid values refresh."""
+    global _SCHEMA_CACHE
+    _SCHEMA_CACHE = None

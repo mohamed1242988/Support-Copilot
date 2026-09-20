@@ -34,33 +34,7 @@ def _safe_print(text: str) -> None:
 
 
 
-def main():
-    print(
-        f"Knowledge Engine "
-        f"(provider = {AI_PROVIDER})"
-    )
 
-    print(
-        'How can I help you today?\n'
-    )
-
-    # Persistent conversation history across turns
-    conversation_history: List[Dict] = []
-
-    while True:
-        user_input = input("You: ").strip()
-
-        if user_input.lower() in {"exit", "quit"}:
-            break
-
-        if not user_input:
-            continue
-
-        try:
-            answer, conversation_history = run_agent(user_input, conversation_history)
-            print(f"\nBot: {answer}\n")
-        except Exception as exc:
-            print(f"\n[AI ERROR] {exc}\n")
 
 
 from config.config import (
@@ -88,8 +62,23 @@ from services.tools import FUNCTION_DEFS, dispatch
 def build_system_prompt() -> str:
     """Build the Knowledge Engine prompt with all available agents."""
     
-    from datetime import datetime
+    from datetime import datetime, timedelta
     current_date_str = datetime.now().strftime("%Y-%m-%d (%A)")
+    today = datetime.now().date()
+    this_week = today - timedelta(days=today.weekday())
+    last_week = this_week - timedelta(days=7)
+    this_month = today.replace(day=1)
+    last_month = (this_month - timedelta(days=1)).replace(day=1)
+    next_day = today + timedelta(days=1)
+    date_ranges = (
+        "Ready-made ranges (weeks start Monday; end bounds are exclusive):\n"
+        f"- today: created_at >= '{today}' AND created_at < '{next_day}'\n"
+        f"- this week: created_at >= '{this_week}' AND created_at < '{next_day}'\n"
+        f"- last week: created_at >= '{last_week}' AND created_at < '{this_week}'\n"
+        f"- this month: created_at >= '{this_month}' AND created_at < '{next_day}'\n"
+        f"- last month: created_at >= '{last_month}' AND created_at < '{this_month}'\n"
+        "Use these for those phrases instead of SQLite date modifiers."
+    )
 
     agent_instructions = "\n\n".join(
         [
@@ -107,7 +96,7 @@ def build_system_prompt() -> str:
     return f"""
 [SYSTEM CONTEXT]
 The current date is {current_date_str}. Always resolve relative dates (e.g., "August", "last month", "this year") relative to this exact date.
-
+{date_ranges}
 {SYSTEM_PROMPT}
 
 {agent_instructions}
@@ -171,10 +160,9 @@ If a tool returns no useful information, say so clearly.
 
 You may perform multiple tool calls when necessary.
 
-For every database question, call `get_database_schema` before writing the
-first SQL query. Use only the exact table and column names returned by that
-tool. If SQL fails, correct it from the schema; never run a weaker or unrelated
-fallback query. If the requested fact depends on ticket history, comments,
+The database schema is already provided in the conversation. Use only the exact
+table and column names in it. If SQL fails, correct it from the schema; never
+run a weaker or unrelated fallback query. If the requested fact depends on ticket history, comments,
 replies, assignments, or other events, use the related history table rather
 than assuming `updated_at` proves the event occurred.
 
@@ -182,9 +170,10 @@ Keep these fields distinct:
 - `freshdesk_tickets.description_text` is the original ticket description.
 - `freshdesk_conversations.body_text` is a comment or conversation message.
 - `freshdesk_conversations.created_at` is the comment time.
-For "last comment", retrieve conversations and select the latest `created_at`.
-For "including conversations", retrieve the conversation records explicitly.
-
+For "last comment", use the last_comment rules in the schema business rules (computed in SQL).For "including conversations", retrieve the conversation records explicitly.
+Counts use only the filters the user stated. If you add a filter, say so.
+Never claim you analyzed data you did not retrieve.
+Comment types and the missing-author limitation are defined in the schema business rules.
 Answer the latest user question directly. Treat each user query independently. Do not assume the current question relates to the customer, agent, or topic from the previous question unless the user explicitly refers back to it (e.g., using pronouns like 'they' or 'it'). When a new question changes the ticket, customer, agent, or time scope, treat it as a completely new investigation without carrying over arbitrary context. Do not repeat content from an older answer unless the user asks for a recap.
 
 Use only tables and columns returned by `get_database_schema` or documented
@@ -407,23 +396,23 @@ def _ask_bedrock(messages):
                 }
             )
 
-    response = bedrock.converse(
-        modelId=BEDROCK_MODEL,
+        from botocore.exceptions import ClientError
 
-        system=[
-            {
-                "text": system_prompt
-            }
-        ],
+    def _call():
+        return bedrock.converse(
+            modelId=BEDROCK_MODEL,
+            system=[{"text": system_prompt}],
+            messages=conversation,
+            toolConfig={"tools": _bedrock_tools()},
+            inferenceConfig={"temperature": 0, "maxTokens": 4096},
+        )
 
-        messages=conversation,
-
-        toolConfig={
-            "tools": _bedrock_tools()
-        },
-    )
-
-    return response
+    try:
+        return _call()
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] == "ModelErrorException":
+            return _call()  # retry once
+        raise
 
 
 # ======================================================================
@@ -1022,9 +1011,14 @@ def run_agent(user_question: str, history: List[Dict] | None = None) -> Tuple[st
         "role": "user",
         "content": f"[CURRENT USER REQUEST]\n{user_question}",
     })
-
+    def _clean_history(answer_text: str) -> List[Dict]:
+        h = history.copy() if history else []
+        h.append({"role": "user", "content": user_question})
+        h.append({"role": "assistant", "content": answer_text})
+        return h
     max_iterations = 4
     seen_calls: set = set()
+    spec_retry_done = False
     # (Removed for simplicity; limited iteration count handles repeats.)
 
     for iteration in range(max_iterations):
@@ -1034,6 +1028,16 @@ def run_agent(user_question: str, history: List[Dict] | None = None) -> Tuple[st
         # No tool call = final answer.
         if not tool_calls:
             answer = extract_text(response)
+            if (not spec_retry_done
+                    and answer.lstrip().startswith('{"name"')
+                    and any(t["name"] in answer for t in FUNCTION_DEFS)):
+                spec_retry_done = True
+                messages.append({"role": "assistant", "content": answer})
+                messages.append({
+                    "role": "user",
+                    "content": "Call the tool through the tool interface. Do not write the tool definition as text.",
+                })
+                continue
             # Attempt to format ticket list if answer looks like JSON
             try:
                 data = json.loads(answer)
@@ -1078,17 +1082,13 @@ def run_agent(user_question: str, history: List[Dict] | None = None) -> Tuple[st
                     "I could not complete this request because the AI repeated "
                     "the same database operation without producing a final answer."
                 )
-            return answer, messages
+                return answer, _clean_history(answer)
 
         results = []
         for call in tool_calls:
             _safe_print(f"\n[TOOL CALL] {call['name']}")
-            _safe_print(f"[ARGUMENTS] {call['arguments']}")
+            _safe_print(f"[ARGUMENTS] {call['arguments'].get('sql', call['arguments'])}")
             try:
-                print("\n===== TOOL CALL =====")
-                print("Tool:", call.get("name"))
-                print("Arguments:", call.get("arguments"))
-                print("=====================\n")
                 result = dispatch({"name": call["name"], "arguments": call["arguments"]})
                 res_str = str(result)
                 if len(res_str) > 600:
@@ -1103,7 +1103,8 @@ def run_agent(user_question: str, history: List[Dict] | None = None) -> Tuple[st
         add_tool_results(messages, response, tool_calls, results)
 
     # If we exit the loop without a final answer.
-    return ("I was unable to complete the investigation within the allowed number of tool calls.", messages)
+    fallback = "I was unable to complete the investigation within the allowed number of tool calls."
+    return fallback, _clean_history(fallback)
 
 
 # ======================================================================
