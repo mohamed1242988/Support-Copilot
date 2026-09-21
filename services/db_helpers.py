@@ -251,6 +251,17 @@ def get_database_schema() -> Dict[str, Any]:
             },
             {"name": "active_ticket", "meaning": "status NOT IN ('Resolved', 'Closed')"},
             {
+                "name": "missing_values",
+                "meaning": "NULL/empty fields (e.g. relates_to not set by the agent) are data. Never filter them out unless the user asks; "
+                           "include them as 'Not set' (e.g. COALESCE(relates_to, 'Not set')) with their count.",
+            },
+            {
+                "name": "category_breakdown",
+                "meaning": "For questions about categories, GROUP BY COALESCE(relates_to, 'Not set') with COUNT(*). "
+                           "If 'Not set' tickets exist, say how many and offer to suggest a category for them from subject/description. "
+                           "Only infer when the user agrees, using a short list of those tickets. State that inferred categories are suggestions.",
+            },
+            {
                 "name": "escalated_to_rd",
                 "meaning": "Currently escalated to R&D: status NOT IN ('Resolved','Closed') AND (status = 'On-Hold (Escalated)' "
                            "OR internal_status IN ('Escalated -> Development In Progress','Escalation Complete','Escalated -> Development Deferred')). "

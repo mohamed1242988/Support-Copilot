@@ -174,7 +174,14 @@ For "last comment", use the last_comment rules in the schema business rules (com
 Counts use only the filters the user stated. If you add a filter, say so.
 Never claim you analyzed data you did not retrieve.
 Comment types and the missing-author limitation are defined in the schema business rules.
-Answer the latest user question directly. Treat each user query independently. Do not assume the current question relates to the customer, agent, or topic from the previous question unless the user explicitly refers back to it (e.g., using pronouns like 'they' or 'it'). When a new question changes the ticket, customer, agent, or time scope, treat it as a completely new investigation without carrying over arbitrary context. Do not repeat content from an older answer unless the user asks for a recap.
+Answer the latest user question directly.
+Treat each question independently, with one exception: a short follow-up that has no
+subject of its own (e.g. "what about August?", "and last month?", "how about high priority?")
+inherits the customer, agent, and metric of the MOST RECENT user question and changes only
+what the user stated. Begin the answer with the resolved scope (e.g. "Mary Kay, August 2026:").
+If the last few questions concern different subjects and the follow-up could refer to either,
+ask one short clarification question. Do not repeat content from an older answer unless the
+user asks for a recap.
 
 Use only tables and columns returned by `get_database_schema` or documented
 by the tool descriptions. Before using a JOIN, carefully review the table schema. If the data you need (such as a customer name) is already present as a column on the primary table, query it directly to avoid unnecessary joins and improve efficiency. If a query fails because of a schema error, call `get_database_schema` once and correct the query using only the returned schema.
@@ -301,7 +308,7 @@ def _bedrock_tools() -> List[Dict[str, Any]]:
 # GEMINI
 # ======================================================================
 
-def _ask_gemini(contents):
+def _ask_gemini(contents, tools_enabled=True):
 
     from google import genai
     from google.genai import types
@@ -333,7 +340,7 @@ def _ask_gemini(contents):
     )
 
     config = types.GenerateContentConfig(
-        tools=[gemini_tool]
+        tools=[gemini_tool] if tools_enabled else None
     )
 
     return client.models.generate_content(
@@ -347,7 +354,7 @@ def _ask_gemini(contents):
 # BEDROCK
 # ======================================================================
 
-def _ask_bedrock(messages):
+def _ask_bedrock(messages, tools_enabled=True):
 
     from boto3 import client as boto_client
 
@@ -398,14 +405,17 @@ def _ask_bedrock(messages):
 
         from botocore.exceptions import ClientError
 
+    kwargs = dict(
+        modelId=BEDROCK_MODEL,
+        system=[{"text": system_prompt}],
+        messages=conversation,
+        inferenceConfig={"temperature": 0, "maxTokens": 4096},
+    )
+    if tools_enabled:
+        kwargs["toolConfig"] = {"tools": _bedrock_tools()}
+
     def _call():
-        return bedrock.converse(
-            modelId=BEDROCK_MODEL,
-            system=[{"text": system_prompt}],
-            messages=conversation,
-            toolConfig={"tools": _bedrock_tools()},
-            inferenceConfig={"temperature": 0, "maxTokens": 4096},
-        )
+        return bedrock.converse(**kwargs)
 
     try:
         return _call()
@@ -419,7 +429,7 @@ def _ask_bedrock(messages):
 # OLLAMA
 # ======================================================================
 
-def _ask_ollama(messages):
+def _ask_ollama(messages, tools_enabled=True):
 
     import ollama
 
@@ -438,7 +448,7 @@ def _ask_ollama(messages):
     return ollama.chat(
         model=OLLAMA_MODEL,
         messages=ollama_messages,
-        tools=_openai_tools(),
+        tools=_openai_tools() if tools_enabled else None,
     )
 
 
@@ -446,7 +456,7 @@ def _ask_ollama(messages):
 # GROQ
 # ======================================================================
 
-def _ask_groq(messages):
+def _ask_groq(messages, tools_enabled=True):
 
     from groq import Groq
 
@@ -466,11 +476,11 @@ def _ask_groq(messages):
     for message in messages:
         groq_messages.append(message)
 
+    kwargs = {"tools": _openai_tools(), "tool_choice": "auto"} if tools_enabled else {}
     return client.chat.completions.create(
         model=GROQ_MODEL,
         messages=groq_messages,
-        tools=_openai_tools(),
-        tool_choice="auto",
+        **kwargs,
     )
 
 
@@ -478,25 +488,16 @@ def _ask_groq(messages):
 # PROVIDER DISPATCH
 # ======================================================================
 
-def ask_provider(messages):
-
+def ask_provider(messages, tools_enabled=True):
     if AI_PROVIDER == "gemini":
-        return _ask_gemini(
-            _build_gemini_contents(messages)
-        )
-
+        return _ask_gemini(_build_gemini_contents(messages), tools_enabled)
     if AI_PROVIDER == "bedrock":
-        return _ask_bedrock(messages)
-
+        return _ask_bedrock(messages, tools_enabled)
     if AI_PROVIDER == "ollama":
-        return _ask_ollama(messages)
-
+        return _ask_ollama(messages, tools_enabled)
     if AI_PROVIDER == "groq":
-        return _ask_groq(messages)
-
-    raise ValueError(
-        f"Unsupported AI provider: {AI_PROVIDER}"
-    )
+        return _ask_groq(messages, tools_enabled)
+    raise ValueError(f"Unsupported AI provider: {AI_PROVIDER}")
 
 
 # ======================================================================
@@ -979,6 +980,28 @@ def extract_text(response):
 # MAIN TOOL-CALLING LOOP
 # ======================================================================
 
+def _finalize(base_messages, retrieved, user_question, max_chars=30000):
+    """Last call with tools disabled: answer only from data already retrieved."""
+    fallback = "I was unable to complete the investigation within the allowed number of tool calls."
+    try:
+        data = json.dumps(retrieved, ensure_ascii=False, default=str)
+        cut = len(data) > max_chars
+        prompt = (
+            f"[CURRENT USER REQUEST]\n{user_question}\n\n"
+            "Tool results already retrieved for this request"
+            + (" (cut for size)" if cut else "") + ":\n"
+            + data[:max_chars]
+            + "\n\nNo more tools are available. Answer only from this data. "
+            "State clearly what is missing or unverified. If the question is too "
+            "broad to answer, ask the user one short narrowing question."
+        )
+        msgs = base_messages[:-1] + [{"role": "user", "content": prompt}]
+        answer = extract_text(ask_provider(msgs, tools_enabled=False)).strip()
+        return answer or fallback
+    except Exception as exc:
+        _safe_print(f"[FINALIZE ERROR] {exc}")
+        return fallback
+
 def run_agent(user_question: str, history: List[Dict] | None = None) -> Tuple[str, List[Dict]]:
     """Execute the Knowledge Engine for a single user question.
     `history` holds prior message objects; if None a new list is created.
@@ -1016,7 +1039,9 @@ def run_agent(user_question: str, history: List[Dict] | None = None) -> Tuple[st
         h.append({"role": "user", "content": user_question})
         h.append({"role": "assistant", "content": answer_text})
         return h
-    max_iterations = 4
+    base_messages = messages.copy()  # plain-text messages, before any tool blocks
+    retrieved = []
+    max_iterations = 5
     seen_calls: set = set()
     spec_retry_done = False
     # (Removed for simplicity; limited iteration count handles repeats.)
@@ -1075,14 +1100,9 @@ def run_agent(user_question: str, history: List[Dict] | None = None) -> Tuple[st
                 break
             seen_calls.add(call_key)
         if duplicate:
-            # Return whatever we have so far to avoid endless repetition.
-            answer = extract_text(response)
-            if not answer.strip():
-                answer = (
-                    "I could not complete this request because the AI repeated "
-                    "the same database operation without producing a final answer."
-                )
-                return answer, _clean_history(answer)
+            _safe_print("[AGENT] exit reason: duplicate_call")
+            answer = _finalize(base_messages, retrieved, user_question)
+            return answer, _clean_history(answer)
 
         results = []
         for call in tool_calls:
@@ -1098,13 +1118,15 @@ def run_agent(user_question: str, history: List[Dict] | None = None) -> Tuple[st
                 result = {"error": str(exc)}
                 _safe_print(f"[TOOL ERROR] {call['name']}: {exc}")
             results.append(result)
+            retrieved.append({"tool": call["name"], "arguments": call["arguments"], "result": result})
 
         # Add the tool results back into the conversation.
         add_tool_results(messages, response, tool_calls, results)
 
     # If we exit the loop without a final answer.
-    fallback = "I was unable to complete the investigation within the allowed number of tool calls."
-    return fallback, _clean_history(fallback)
+    _safe_print("[AGENT] exit reason: max_iterations")
+    answer = _finalize(base_messages, retrieved, user_question)
+    return answer, _clean_history(answer)
 
 
 # ======================================================================

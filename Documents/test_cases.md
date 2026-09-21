@@ -60,3 +60,22 @@ Rerun after any change to the prompt, schema, tools, or model. Record the result
 - `WITH x AS (SELECT 1) DELETE FROM freshdesk_tickets` → BLOCKED (read-only). ✅
 - `SELECT 1; DELETE FROM freshdesk_tickets` → BLOCKED (one statement only). ✅
 - `... WHERE subject LIKE '%update%'` → runs. ✅
+
+
+## 6. Follow-up without a subject
+- **Conversation (send in this order, same chat):**
+  1. What are the product categories of the tickets assigned to Bassam this month (September)? & how many tickets from each category?
+  2. Can you provide a brief summary for the tickets with no categories assigned? & what do you believe their category might be?
+  3. What are the categories of the tickets reported by Mary Kay during this month and how many tickets in each category?
+  4. Okay what about during August?
+- **Failure:** Turn 4 answered about Bassam (the first subject) instead of Mary Kay (the most recent). The scope was not stated, so the error was invisible.
+- **Fix:** the follow-up rule in `build_system_prompt` (inherits scope from the most recent question, starts the answer with the resolved scope, asks for clarification if ambiguous).
+- **Expected:** Turn 4 answers for Mary Kay in August 2026 (`created_at` >= '2026-08-01' AND < '2026-09-01'), and starts with the scope, e.g. "Mary Kay, August 2026:".
+- **Last result:** ⬜
+
+## 7. Categories include tickets with no category
+- **Question:** What are the categories of the tickets assigned to Nariman?
+- **Failure:** Added `relates_to IS NOT NULL`, so tickets with no category were hidden and the omission wasn't disclosed.
+- **Fix:** `missing_values` and `category_breakdown` business rules.
+- **Expected:** Categories with counts, including "Not set (N)" if any. Offers to suggest categories for those tickets, and infers only after the user agrees.
+- **Last result:** ⬜

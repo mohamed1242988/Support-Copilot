@@ -1,0 +1,122 @@
+Case1:
+
+You: can u search for (MaryKay Boomi process issue) and let me know what relevant issues previously reported u can find ?
+
+[TOOL CALL] search_tickets
+[ARGUMENTS] {'query': 'Mary Kay Boomi process issue'}
+[TOOL RESULT] {'results': [{'document_id': 68007535665, 'document_type': 'conversation', 'title': '', 'content': 'Comment from Jira - [~accountid:712020:7adf45be-93f0-4b06-8a45-eae1f7bc4df2] Can you please specify which integration the client has trouble with ? \nMary Kay has a Quick Connect service called “Mary Kay Expense Import” that reads an input file from SFTP folder. All recent log files say “…. cannot fi…[cut]'}, {'document_id': 68009148951, 'document_type': 'conversation', 'title': '', 'content': 'Hi Katrina,  Looks like you missed a "/" in the path it should be /sandbox/ .     Correct path >\xa0Ma ... [18704 chars truncated for console display]
+
+AI: Based on the search results, I found several relevant Mary Kay Boomi process issues previously reported. Here's a summary of the key issues:
+
+## **Mary Kay Boomi Process Issues Found:**
+
+### **1. FieldGlass Time Export Process – Timeout/Failure (Primary Issue)**
+- **Issue**: The "FieldGlass Time Export" Boomi process was timing out on production, taking longer than normal (started at 10:51, no progress by 11:05)
+- **Root Cause**: HTTP call timeout after 20 minutes; the process was failing due to performance issues with the stored procedure
+- **Resolution**: Performance improvements were implemented to the procedures used by the Boomi process; fix was deployed to production and confirmed to run successfully
+- **Status**: Resolved
+
+### **2. Allocation Association Boomi Process – Failure**
+- **Issue**: The Allocation Association Boomi process was failing with errors
+- **Resolution**: Improvements to the process were deployed to Mary Kay's Boomi UAT environment to address the issue
+- **Status**: Pending customer testing/approval
+
+### **3. Custom Historical Split Billing Adjustments – Performance Issue**
+- **Issue**: Process performance needed optimization
+- **Resolution**: Performance improvements were implemented to the procedures; awaiting approval to refresh Sandbox with Production before production deployment
+- **Status**: Awaiting customer approval
+
+### **4. BambooHR Connection Error (July 2026)**
+- **Issue**: Boomi process failed between July 16-18, 2026 with a 500 Internal Server Error
+- **Root Cause**: BambooHR connection failed to retrieve leave requests
+- **Status**: Investigated and resolved
+
+### **5. Data Sanitization Issue – PSS API Special Characters**
+- **Issue**: Special characters returned from PSS API broke the Boomi profile and halted the entire process
+- **Resolution**: Identified impacted tasks; client corrected the data; escalated to Technical Services for proper data sanitization/validation implementation
+- **Status**: Resolved
+
+---
+
+**Common Themes:**
+- Performance/timeout issues with Boomi processes
+- Data quality issues (special characters, invalid data)
+- Connection/authentication issues with third-party integrations (BambooHR, PSS API)
+- Most issues have been resolved with process improvements or data corrections
+
+Would you like me to pull detailed ticket information for any of these issues, or investigate a specific current Mary Kay Boomi problem?
+
+
+
+
+
+
+
+
+You: Can u list each ticket u found with the customer name ?
+
+[TOOL CALL] search_tickets
+[ARGUMENTS] {'query': 'MaryKay Boomi process issue'}
+[TOOL RESULT] {'results': [{'document_id': 68007350322, 'document_type': 'conversation', 'title': '', 'content': 'Raised as a blocker under [PTS-4959] MaryKay | Boomi process "FieldGlass Time Export" failing on PROD - JIRA'}, {'document_id': 68008884844, 'document_type': 'conversation', 'title': '', 'content': "Summary:  MaryKay ran the Boomi process “FieldGlass Time Export” on their PROD Atom, and it failed after 20 minutes with an error.  \xa0  Steps Taken:  Replicated the issue and escalated to TS team under PTS-4959 for which they developed a fix that was deployed to client's SB.  \xa0  Next Steps:  Fol ... [19164 chars truncated for console display]
+
+[TOOL CALL] query_database
+[ARGUMENTS] 
+SELECT DISTINCT 
+  id,
+  subject,
+  Customer_Name,
+  created_at,
+  status
+FROM freshdesk_tickets
+WHERE (Customer_Name LIKE '%Mary Kay%' OR Customer_Name LIKE '%MaryKay%')
+  AND (subject LIKE '%Boomi%' OR description_text LIKE '%Boomi%')
+ORDER BY created_at DESC
+
+[TOOL RESULT] {'results': [{'id': 438058, 'subject': 'FieldGlass Time Export error', 'Customer_Name': 'Mary Kay Inc. (PSA)', 'created_at': '2026-07-29T15:43:01Z', 'status': 'Closed'}, {'id': 381218, 'subject': 'RE: [#333576] | MaryKay | Boomi process "FieldGlass Time Export" failing on production', 'Customer_Name': 'Mary Kay Inc. (PSA)', 'created_at': '2026-06-18T14:35:25Z', 'status': 'Closed'}, {'id': 339779, 'subject': 'RE: [External] [1967326] Upland PSA Support Request Updated | "MaryKay | Boomi process "FieldGlass Time Export" failing on production"', 'Customer_Name': 'Mary Kay Inc. (PSA)', 'created_at ... [864 chars truncated for console display]
+
+AI: ## Mary Kay Boomi Process Issues - Ticket List
+
+| Ticket ID | Subject | Customer Name | Created At | Status |
+|-----------|---------|---------------|-----------|--------|
+| **438058** | FieldGlass Time Export error | Mary Kay Inc. (PSA) | 2026-07-29 | Closed |
+| **381218** | RE: [#333576] \| MaryKay \| Boomi process "FieldGlass Time Export" failing on production | Mary Kay Inc. (PSA) | 2026-06-18 | Closed |
+| **339779** | RE: [External] [1967326] Upland PSA Support Request Updated \| "MaryKay \| Boomi process "FieldGlass Time Export" failing on production" | Mary Kay Inc. (PSA) | 2026-05-20 | Closed |
+| **333576** | MaryKay \| Boomi process "FieldGlass Time Export" failing on production | Mary Kay Inc. (PSA) | 2026-05-13 | Pending |
+
+All four tickets are for **Mary Kay Inc. (PSA)** and relate to the FieldGlass Time Export Boomi process. The primary issue (ticket #333576) was created on May 13, 2026, with subsequent follow-ups and related tickets through July 2026.
+
+
+Case2:
+
+You: Can u search for (User bypass SSO issue) and let me know what relevant issues u can find ?
+
+[TOOL CALL] search_tickets
+[ARGUMENTS] {'query': 'User bypass SSO issue'}
+[TOOL RESULT] {'results': [{'document_id': 68010652008, 'document_type': 'conversation', 'title': '', 'content': 'Hi Joel,     You do have SSO enabled on your production environment.  The “Can bypass Single Sign-on” option is there to allow users to use their PSA login credentials instead of the SSO login credentials.  For more details, please refer to > Allow Users to Bypass SSO Login\xa0  \u200b   Let me know if you …[cut]'}, {'document_id': 68010836202, 'document_type': 'conversation', 'title': '', 'content': 'Hello Joel,     Following up on that request, have you had a chance to confirm the “Can bypass  ... [17450 chars truncated for console display]
+
+AI: Based on the search results, I found several relevant issues related to user bypass SSO functionality. Here are the key findings:
+
+## Relevant Issues Found:
+
+**Primary Issue - SSO Enablement (Ticket #455714)**
+- **Customer:** Joel Chua (Swift)
+- **Main Problem:** User confusion about the "Can bypass Single Sign-on" functionality and how it relates to SSO enablement
+- **Key Details:**
+  - Customer questioned whether unchecking "Can bypass Single Sign-on" means SSO is enabled
+  - Confusion about answering "Is SSO used for user authentication?"
+  - When attempting to use the bypass SSO feature, a password change prompt appeared
+  - After entering the correct current password, system returned error: "Old password is blank or does not match"
+  - Even after creating a new password, user was still unable to login
+
+**Related Issues:**
+1. **Password Change Error During SSO Bypass** - When clicking "Can bypass SSO," the system prompts for a password change, but rejects the correct current password
+2. **Login Failure After SSO Bypass Password Reset** - User unable to login even after successfully creating a new password through the bypass SSO flow
+3. **NOSSO Link Requests** - Multiple customers requesting the direct bypass SSO link (logonNOSSO.aspx) to access the system without SSO authentication
+
+**Resolution Provided:**
+- Support provided direct bypass SSO links for both production and sandbox environments:
+  - Production: `https://SWIFTSCRL.tenrox.net/TEnterprise/Core/Base/logonNOSSO.aspx?orgname=SWIFTSCRL`
+  - Sandbox: `https://SWIFTSCRLSandbox.tenrox.net/TEnterprise/Core/Base/logonNOSSO.aspx?orgname=SWIFTSCRLSandbox`
+- Clarification that users need to have a password set in their PSA user profile to use the bypass SSO functionality
+
+**Key Takeaway:** The main issue appears to be a password validation error in the "Can bypass SSO" feature where the system rejects valid current passwords during the password change process, preventing users from establishing bypass credentials.
