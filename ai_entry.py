@@ -21,7 +21,8 @@ import json
 import os
 import sys
 from typing import Any, Dict, List, Tuple
-
+from config.config import *   # adjust to your config's names
+print(repr(GEMINI_API_KEY))
 
 def _safe_print(text: str) -> None:
     """Print text safely, replacing unencodable characters for the current console encoding."""

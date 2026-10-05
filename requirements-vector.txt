@@ -1,0 +1,2 @@
+# Add this package to the environment used by SupportCopilot.
+sqlite-vec

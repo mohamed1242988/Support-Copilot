@@ -173,8 +173,12 @@ def get_database_schema() -> Dict[str, Any]:
         schema: Dict[str, List[Dict[str, Any]]] = {}
         for table_row in tables:
             table_name = table_row["name"]
-            # Skip full‑text search helper tables (they have no useful business data).
-            if table_name.startswith("freshdesk_fts") or table_name.startswith("jira_fts"):
+            # Skip full‑text search and internal vector helper tables
+            if (
+                table_name.startswith("freshdesk_fts")
+                or table_name.startswith("jira_fts")
+                or table_name.startswith("document_chunk")
+            ):
                 continue
 
             # Retrieve column info for this table
