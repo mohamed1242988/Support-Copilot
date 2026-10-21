@@ -344,6 +344,148 @@
             border-bottom-right-radius: 4px;
         }
 
+        .feedback {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #f1f5f9;
+            font-size: 13px;
+        }
+
+        .feedback-label {
+            color: #94a3b8;
+            margin-right: 4px;
+        }
+
+        .feedback button {
+            height: 30px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: transparent;
+            color: #64748b;
+            font: inherit;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+        }
+
+        .feedback button:focus-visible {
+            outline: 2px solid #2563eb;
+            outline-offset: 2px;
+        }
+
+        .feedback button:disabled {
+            cursor: default;
+        }
+
+        .feedback-icon {
+            width: 14px;
+            height: 14px;
+            display: inline-flex;
+            flex-shrink: 0;
+        }
+
+        .feedback-icon svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .feedback button.feedback-helpful:hover,
+        .feedback button.feedback-helpful.selected {
+            background: #f0fdf4;
+            border-color: #bbf7d0;
+            color: #15803d;
+        }
+
+        .feedback button.feedback-helpful.selected {
+            border-color: #16a34a;
+            font-weight: 600;
+        }
+
+        .feedback button.feedback-needs-improvement:hover,
+        .feedback button.feedback-needs-improvement.selected {
+            background: #fffbeb;
+            border-color: #fde68a;
+            color: #b45309;
+        }
+
+        .feedback button.feedback-needs-improvement.selected {
+            border-color: #d97706;
+            font-weight: 600;
+        }
+
+        .feedback button.feedback-not-helpful:hover,
+        .feedback button.feedback-not-helpful.selected {
+            background: #fef2f2;
+            border-color: #fecaca;
+            color: #b91c1c;
+        }
+
+        .feedback button.feedback-not-helpful.selected {
+            border-color: #dc2626;
+            font-weight: 600;
+        }
+
+        .feedback button:disabled:not(.selected),
+        .feedback button:disabled:not(.selected):hover {
+            background: transparent;
+            border-color: #e2e8f0;
+            color: #64748b;
+        }
+
+        .feedback-form {
+            flex-basis: 100%;
+            display: none;
+            margin-top: 1px;
+        }
+
+        .feedback-form textarea {
+            width: 100%;
+            min-height: 54px;
+            resize: vertical;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 6px;
+            font: inherit;
+            font-size: 14px;
+        }
+
+        .feedback-form button {
+            margin-top: 5px;
+        }
+
+        .feedback-status {
+            display: inline-block;
+            color: #1d4ed8;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-weight: 500;
+            margin-left: 6px;
+        }
+
+        @media (max-width: 480px) {
+            .feedback-label,
+            .feedback-button-label {
+                display: none;
+            }
+
+            .feedback button {
+                width: 32px;
+                height: 32px;
+                justify-content: center;
+                padding: 0;
+            }
+        }
+
         /* Markdown */
         .bubble p {
             margin: 0 0 10px;
@@ -629,10 +771,12 @@
      */
 
     const STORAGE_KEY = "psa_ai_chat_sessions";
+    const DRAFT_KEY = "psa_ai_chat_draft";
     const MAX_SESSIONS = 30;
 
     let sessions = [];
     let currentSessionId = null;
+    let currentDraft = null;
     let history = [];
 
 
@@ -655,6 +799,12 @@
             if (saved) {
                 sessions = JSON.parse(saved);
             }
+
+            // Remove empty sessions created by older versions.
+            sessions = sessions.filter(session =>
+                Array.isArray(session.history) && session.history.length > 0
+            );
+            saveChatSessions();
 
         } catch (error) {
 
@@ -699,28 +849,33 @@
 
     function createNewSession() {
 
-        const session = {
-            id: Date.now().toString(),
+        let draft = null;
+
+        try {
+            draft = JSON.parse(localStorage.getItem(DRAFT_KEY));
+        } catch (error) {
+            draft = null;
+        }
+
+        if (!draft || !draft.id) {
+            draft = {
+                id: "draft-" + Date.now().toString(),
+                createdAt: Date.now()
+            };
+            localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+        }
+
+        currentDraft = {
+            id: draft.id,
             title: "New conversation",
             history: [],
-            createdAt: Date.now(),
+            createdAt: draft.createdAt,
             updatedAt: Date.now()
         };
 
-        sessions.unshift(session);
-
-        /*
-         * Keep browser storage under control.
-         */
-
-        if (sessions.length > MAX_SESSIONS) {
-            sessions = sessions.slice(0, MAX_SESSIONS);
-        }
-
-        currentSessionId = session.id;
+        currentSessionId = currentDraft.id;
         history = [];
 
-        saveChatSessions();
         renderHistory();
         showWelcome();
     }
@@ -765,6 +920,10 @@
 
     function getCurrentSession() {
 
+        if (currentDraft && currentDraft.id === currentSessionId) {
+            return currentDraft;
+        }
+
         return sessions.find(
             session => session.id === currentSessionId
         );
@@ -800,6 +959,20 @@
 
         if (!session) {
             return;
+        }
+
+        // Empty drafts stay temporary and never enter the sidebar.
+        if (history.length === 0 && currentDraft && session.id === currentDraft.id) {
+            return;
+        }
+
+        if (currentDraft && session.id === currentDraft.id && history.length > 0) {
+            currentDraft = null;
+            localStorage.removeItem(DRAFT_KEY);
+            sessions.unshift(session);
+            if (sessions.length > MAX_SESSIONS) {
+                sessions = sessions.slice(0, MAX_SESSIONS);
+            }
         }
 
         session.history = history;
@@ -901,6 +1074,8 @@
             return;
         }
 
+        currentDraft = null;
+        localStorage.removeItem(DRAFT_KEY);
         currentSessionId = session.id;
         history = session.history || [];
 
@@ -973,7 +1148,7 @@
         }
 
 
-        history.forEach(message => {
+        history.forEach((message, index) => {
 
             /*
              * Your existing history format is expected to contain
@@ -986,7 +1161,14 @@
 
             } else if (message.role === "assistant") {
 
-                addMessage("assistant", message.content, false);
+                addMessage("assistant", message.content, false, {
+                    responseIndex: index,
+                    assistantResponse: message.content,
+                    userMessage: history
+                        .slice(0, index)
+                        .reverse()
+                        .find(item => item.role === "user")?.content || ""
+                });
             }
 
         });
@@ -1021,7 +1203,7 @@
      * conversation from localStorage.
      */
 
-    function addMessage(role, text, saveToHistory = false) {
+    function addMessage(role, text, saveToHistory = false, feedbackContext = null) {
 
         const welcome = document.getElementById("welcome");
 
@@ -1059,6 +1241,13 @@
         message.appendChild(avatar);
         message.appendChild(bubble);
 
+        if (role === "assistant" && feedbackContext) {
+            addFeedbackControls(bubble, {
+                ...feedbackContext,
+                assistantResponse: text
+            });
+        }
+
         messages.appendChild(message);
 
 
@@ -1074,6 +1263,102 @@
 
 
         scrollToBottom();
+    }
+
+
+    function addFeedbackControls(bubble, context) {
+
+        const feedback = document.createElement("div");
+        feedback.className = "feedback";
+        feedback.setAttribute("role", "group");
+        feedback.setAttribute("aria-label", "Rate this response");
+
+        const label = document.createElement("span");
+        label.className = "feedback-label";
+        label.textContent = "Was this helpful?";
+        feedback.appendChild(label);
+
+        const options = [
+            ["helpful", "Helpful", '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v10H4a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2h3Z"/><path d="M7 10 11 3a2 2 0 0 1 2 2v3h5.3a2 2 0 0 1 2 2.3l-1.1 7A2 2 0 0 1 17.2 19H7"/></svg>'],
+            ["needs_improvement", "Needs improvement", '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>'],
+            ["not_helpful", "Not helpful", '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 14V4H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h3Z"/><path d="m7 14 4 7a2 2 0 0 0 2-2v-3h5.3a2 2 0 0 0 2-2.3l-1.1-7A2 2 0 0 0 17.2 5H7"/></svg>']
+        ];
+
+        const form = document.createElement("div");
+        form.className = "feedback-form";
+        form.innerHTML = `
+            <textarea placeholder="Optional: what could be improved?"></textarea>
+            <button type="button">Submit feedback</button>
+            <span class="feedback-status"></span>
+        `;
+
+        let selectedRating = null;
+
+        options.forEach(([rating, label, icon]) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "feedback-" + rating.replaceAll("_", "-");
+            button.setAttribute("aria-label", label);
+            button.setAttribute("title", label);
+            button.setAttribute("aria-pressed", "false");
+            button.innerHTML = `
+                <span class="feedback-icon" aria-hidden="true">${icon}</span>
+                <span class="feedback-button-label">${label}</span>
+            `;
+            button.onclick = () => {
+                selectedRating = rating;
+                feedback.querySelectorAll("button").forEach(item => {
+                    item.classList.remove("selected");
+                    item.setAttribute("aria-pressed", "false");
+                });
+                button.classList.add("selected");
+                button.setAttribute("aria-pressed", "true");
+                form.style.display = "block";
+            };
+            feedback.appendChild(button);
+        });
+
+        form.querySelector("button").onclick = async () => {
+            if (!selectedRating) {
+                return;
+            }
+
+            const submitButton = form.querySelector("button");
+            const status = form.querySelector(".feedback-status");
+            submitButton.disabled = true;
+
+            try {
+                const response = await fetch("/feedback", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        rating: selectedRating,
+                        comment: form.querySelector("textarea").value.trim(),
+                        conversation_id: currentSessionId,
+                        conversation_title: getCurrentSession()?.title || "New conversation",
+                        user_message: context.userMessage || "",
+                        assistant_response: context.assistantResponse || "",
+                        conversation_history: history
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error("Feedback request failed");
+                }
+
+                status.textContent = "Thanks for your feedback.";
+                feedback.querySelectorAll("button").forEach(item => item.disabled = true);
+                form.querySelector("textarea").disabled = true;
+                form.querySelectorAll("button").forEach(item => item.disabled = true);
+            } catch (error) {
+                status.textContent = "Could not save feedback.";
+                submitButton.disabled = false;
+                console.error(error);
+            }
+        };
+
+        bubble.appendChild(feedback);
+        bubble.appendChild(form);
     }
 
 
@@ -1304,7 +1589,11 @@
              * adding it a second time to history.
              */
 
-            addMessage("assistant", data.answer, false);
+            addMessage("assistant", data.answer, false, {
+                responseIndex: history.length - 1,
+                assistantResponse: data.answer,
+                userMessage: message
+            });
 
 
             /*

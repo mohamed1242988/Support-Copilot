@@ -1,0 +1,92 @@
+[
+  {
+    "feedback_id": "2c1fe77a-f410-41e4-bcaa-28097c5a4df7",
+    "submitted_at": "2026-10-21T21:49:16.107891+00:00",
+    "rating": "helpful",
+    "feedback_comment": "this is helpful",
+    "conversation_id": "draft-1792615892602",
+    "conversation_title": "how many tickets were reported today ?",
+    "related_user_message": "summarize it for me plz",
+    "feedback_on_response": [
+      "Here's a summary of today's ticket activity (October 21, 2026):",
+      "",
+      "**Today's Tickets: 11 reported**",
+      "- **All Medium priority** – no Urgent or High priority tickets",
+      "- **Most recent ticket:** #552328 from Blue Yonder, Inc. USA (PSA) at 20:42:36 UTC",
+      "  - Subject: \"Error on Budget Notifications Service\"",
+      "  - Status: Open",
+      "",
+      "All 11 tickets reported today are Medium priority with no critical or high-urgency issues."
+    ],
+    "conversation_history": [
+      {
+        "role": "user",
+        "content": [
+          "how many tickets were reported today ?"
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          "11 tickets were reported today (October 21, 2026)."
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          "is there any high tickets in them ?"
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          "No, there are no High priority tickets among today's 11 reported tickets. Would you like me to check the priority breakdown of today's tickets?"
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          "yes plz"
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          "Today's 11 tickets are all **Medium priority**. There are no Urgent, High, or Low priority tickets reported today."
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          "What is the most recent received ticket ?"
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          "The most recent ticket is **#552328** from Blue Yonder, Inc. USA (PSA), reported on October 21, 2026 at 20:42:36 UTC. The subject is \"Error on Budget Notifications Service\" and it's currently Open with Medium priority."
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          "summarize it for me plz"
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          "Here's a summary of today's ticket activity (October 21, 2026):",
+          "",
+          "**Today's Tickets: 11 reported**",
+          "- **All Medium priority** – no Urgent or High priority tickets",
+          "- **Most recent ticket:** #552328 from Blue Yonder, Inc. USA (PSA) at 20:42:36 UTC",
+          "  - Subject: \"Error on Budget Notifications Service\"",
+          "  - Status: Open",
+          "",
+          "All 11 tickets reported today are Medium priority with no critical or high-urgency issues."
+        ]
+      }
+    ]
+  }
+]

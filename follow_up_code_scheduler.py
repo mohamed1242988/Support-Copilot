@@ -10,6 +10,7 @@ sys.path.insert(0, r"c:\AI Project\SupportCopilot")
 
 incremental_sync()
 
+
 STATUS = 2  # 2=Open, 3=Pending, 4=Resolved, 5=Closed
 AUTH = HTTPBasicAuth(FRESHDESK_API_KEY, "X")
 
@@ -78,4 +79,3 @@ for row in tickets:
         print("  ✅ Private note added")
     else:
         print(f"  ❌ Note failed: {note_response.status_code}")
-
